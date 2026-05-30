@@ -1712,6 +1712,10 @@ func Routes() *web.Router {
 		}, tokenRequiresScopes(auth_model.AccessTokenScopeCategoryOrganization), orgAssignment(false, true), reqToken(), reqTeamMembership(), checkTokenPublicOnly())
 
 		m.Group("/admin", func() {
+			m.Group("/audit", func() {
+				m.Get("/logs", admin.ListAuditLogs)
+				m.Get("/stats", admin.GetAuditStats)
+			})
 			m.Group("/cron", func() {
 				m.Get("", admin.ListCronTasks)
 				m.Post("/{task}", admin.PostCronTask)

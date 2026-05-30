@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	audit_model "gitea.dev/models/audit"
 	git_model "gitea.dev/models/git"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
@@ -205,6 +206,11 @@ func ForkRepository(ctx context.Context, doer, owner *user_model.User, opts Fork
 	}
 
 	notify_service.ForkRepository(ctx, doer, opts.BaseRepo, repo)
+
+	// Audit log for fork
+	if err := audit_model.LogFork(ctx, doer.ID, doer.Name, opts.BaseRepo.ID, opts.BaseRepo.FullName(), owner.ID, repo.FullName()); err != nil {
+		log.Error("Failed to write audit log for fork: %v", err)
+	}
 
 	return repo, nil
 }

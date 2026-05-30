@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/auth"
+	audit_model "gitea.dev/models/audit"
 	"gitea.dev/models/db"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/auth/password"
@@ -440,6 +441,11 @@ func handleSignInFull(ctx *context.Context, u *user_model.User, remember bool) {
 		ctx.ServerError("UpdateUser", err)
 		return
 	}
+
+		// Audit log for login
+		if err := audit_model.LogLogin(ctx, u.ID, u.Name, ctx.RemoteAddr(), ctx.Req.UserAgent(), "web"); err != nil {
+			log.Error("Failed to write audit log for login: %v", err)
+		}
 }
 
 // extractUserNameFromOAuth2 tries to extract a normalized username from the given OAuth2 user.

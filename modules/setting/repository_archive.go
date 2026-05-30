@@ -9,6 +9,9 @@ var RepoArchive = struct {
 	Storage *Storage
 }{}
 
+// ArchiveWatermarkEnabled controls whether to inject .gitea-watermark into zip archives
+var ArchiveWatermarkEnabled bool
+
 func loadRepoArchiveFrom(rootCfg ConfigProvider) (err error) {
 	sec, _ := rootCfg.GetSection("repo-archive")
 	if sec == nil {
@@ -19,6 +22,8 @@ func loadRepoArchiveFrom(rootCfg ConfigProvider) (err error) {
 	if err := sec.MapTo(&RepoArchive); err != nil {
 		return fmt.Errorf("mapto repoarchive failed: %v", err)
 	}
+
+	ArchiveWatermarkEnabled = sec.Key("WATERMARK_ENABLED").MustBool(false)
 
 	RepoArchive.Storage, err = getStorage(rootCfg, "repo-archive", "", sec)
 	return err

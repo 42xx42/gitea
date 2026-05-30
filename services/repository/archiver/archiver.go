@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	audit_model "gitea.dev/models/audit"
 	repo_model "gitea.dev/models/repo"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/gitrepo"
@@ -25,6 +27,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/storage"
 	"gitea.dev/modules/util"
+	"gitea.dev/modules/watermark"
 	gitea_context "gitea.dev/services/context"
 )
 
@@ -325,6 +328,24 @@ func ServeRepoArchive(ctx *gitea_context.Base, archiveReq *ArchiveRequest) error
 	))
 	downloadName := archiveReq.Repo.Name + "-" + archiveReq.GetArchiveName()
 
+	// Audit log for archive downloads
+	{
+		userID := int64(0)
+		userName := ""
+		// Base context does not have Doer, try to get it from context data
+		if data := ctx.Data; data != nil {
+			if signedUser, ok := data["SignedUser"].(*user_model.User); ok && signedUser != nil {
+				userID = signedUser.ID
+				userName = signedUser.Name
+			}
+		}
+		ip := ctx.RemoteAddr()
+		ua := ctx.Req.UserAgent()
+		if err := audit_model.LogArchive(ctx, userID, userName, archiveReq.Repo.ID, archiveReq.Repo.FullName(), ip, ua, archiveReq.Type.String(), archiveReq.CommitID); err != nil {
+			log.Error("Failed to write audit log for archive download: %v", err)
+		}
+	}
+
 	if setting.Repository.StreamArchives || len(archiveReq.Paths) > 0 {
 		// the header must be set before starting streaming even an error would occur,
 		// because errors may happen in git command and such cases aren't in our control.
@@ -358,6 +379,36 @@ func ServeRepoArchive(ctx *gitea_context.Base, archiveReq *ArchiveRequest) error
 		return fmt.Errorf("archive repo %s: failed to open archive file: %w", archiveReq.Repo.FullName(), err)
 	}
 	defer fr.Close()
+
+	// Inject watermark into zip archives
+	if archiveReq.Type == repo_model.ArchiveZip && setting.ArchiveWatermarkEnabled {
+		userName := ""
+		ip := ctx.RemoteAddr()
+		if data := ctx.Data; data != nil {
+			if signedUser, ok := data["SignedUser"].(*user_model.User); ok && signedUser != nil {
+				userName = signedUser.Name
+			}
+		}
+		wmData := watermark.GenerateWatermarkData(setting.AppURL, userName, ip, archiveReq.Repo.FullName(), archiveReq.CommitID)
+		// Read the original archive, inject watermark, and serve the modified zip
+		httplib.ServeSetHeaders(ctx.Resp, httplib.ServeHeaderOptions{Filename: downloadName})
+		if err := watermark.InjectIntoZip(fr, ctx.Resp, wmData); err != nil {
+			log.Error("Failed to inject watermark into archive: %v", err)
+			// Fall back to serving the original archive without watermark
+			fr.Close()
+			fr2, err2 := storage.RepoArchives.Open(rPath)
+			if err2 != nil {
+				return fmt.Errorf("archive repo %s: failed to reopen archive file: %w", archiveReq.Repo.FullName(), err2)
+			}
+			defer fr2.Close()
+			ctx.ServeContent(fr2, gitea_context.ServeHeaderOptions{
+				Filename:     downloadName,
+				LastModified: archiver.CreatedUnix.AsLocalTime(),
+			})
+			return nil
+		}
+		return nil
+	}
 
 	ctx.ServeContent(fr, gitea_context.ServeHeaderOptions{
 		Filename:     downloadName,

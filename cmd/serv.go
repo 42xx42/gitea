@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	asymkey_model "gitea.dev/models/asymkey"
+	audit_model "gitea.dev/models/audit"
 	git_model "gitea.dev/models/git"
 	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
@@ -332,6 +333,28 @@ func runServ(ctx context.Context, c *cli.Command) error {
 	// to avoid breaking, here only use the minimal environment variables for the "gitea serv" command.
 	// it could be re-considered whether to use the same git.CommonGitCmdEnvs() as "git" command later.
 	command.Env = append(command.Env, gitcmd.CommonCmdServEnvs()...)
+
+	// Determine audit action based on verb
+	var auditAction audit_model.AuditAction
+	switch verb {
+	case git.CmdVerbUploadPack, git.CmdVerbUploadArchive:
+		auditAction = audit_model.AuditClone
+	case git.CmdVerbReceivePack:
+		auditAction = audit_model.AuditPush
+	default:
+		auditAction = "" // LFS and other verbs handled separately
+	}
+
+	if auditAction != "" {
+		// Log the SSH operation — use the caller's IP from environment if available
+		sshIP := os.Getenv("SSH_CONNECTION")
+		if idx := strings.Index(sshIP, " "); idx > 0 {
+			sshIP = sshIP[:idx] // first field is client IP
+		}
+		if err := audit_model.CreateAuditLog(ctx, auditAction, results.UserID, results.UserName, results.RepoID, results.OwnerName+"/"+results.RepoName, 0, sshIP, "SSH", audit_model.AuditDetail{"is_ssh": true, "verb": verb}.ToJSON()); err != nil {
+			log.Error("Failed to write audit log for SSH %s: %v", verb, err)
+		}
+	}
 
 	if err = command.Run(); err != nil {
 		return fail(ctx, "Failed to execute git command", "Failed to execute git command: %v", err)

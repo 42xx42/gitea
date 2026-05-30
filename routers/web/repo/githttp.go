@@ -18,6 +18,7 @@ import (
 	"time"
 
 	auth_model "gitea.dev/models/auth"
+	audit_model "gitea.dev/models/audit"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -371,6 +372,33 @@ func serviceRPC(ctx *context.Context, service string) {
 	h := httpBase(ctx, "git-"+service)
 	if h == nil {
 		return
+	}
+
+	// Audit log for HTTP git operations
+	if h.repo != nil {
+		var auditAction audit_model.AuditAction
+		switch service {
+		case ServiceTypeUploadPack:
+			auditAction = audit_model.AuditClone
+		case ServiceTypeReceivePack:
+			auditAction = audit_model.AuditPush
+		case ServiceTypeUploadArchive:
+			auditAction = audit_model.AuditArchive
+		}
+		if auditAction != "" {
+			userID := int64(0)
+			userName := ""
+			if ctx.Doer != nil {
+				userID = ctx.Doer.ID
+				userName = ctx.Doer.Name
+			}
+			ip := ctx.RemoteAddr()
+			ua := ctx.Req.UserAgent()
+			detail := audit_model.AuditDetail{"is_ssh": false, "service": service}.ToJSON()
+			if err := audit_model.CreateAuditLog(ctx, auditAction, userID, userName, h.repo.ID, h.repo.FullName(), 0, ip, ua, detail); err != nil {
+				log.Error("Failed to write audit log for HTTP %s: %v", service, err)
+			}
+		}
 	}
 
 	expectedContentType := fmt.Sprintf("application/x-git-%s-request", service)

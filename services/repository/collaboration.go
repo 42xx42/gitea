@@ -9,11 +9,13 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	audit_model "gitea.dev/models/audit"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/log"
 
 	"xorm.io/builder"
 )
@@ -62,6 +64,13 @@ func AddOrUpdateCollaborator(ctx context.Context, repo *repo_model.Repository, u
 
 		return access_model.RecalculateUserAccess(ctx, repo, u.ID)
 	})
+}
+
+// AuditLogCollaboratorChange writes an audit log for collaborator changes
+func AuditLogCollaboratorChange(ctx context.Context, doer *user_model.User, repo *repo_model.Repository, targetUser *user_model.User, action string, mode perm.AccessMode) {
+	if err := audit_model.CreateAuditLog(ctx, audit_model.AuditCollaborator, doer.ID, doer.Name, repo.ID, repo.FullName(), 0, "", "", audit_model.AuditDetail{"target_user": targetUser.Name, "collab_action": action, "mode": fmt.Sprintf("%d", mode)}.ToJSON()); err != nil {
+		log.Error("Failed to write audit log for collaborator change: %v", err)
+	}
 }
 
 // DeleteCollaboration removes collaboration relation between the user and repository.

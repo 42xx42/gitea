@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	actions_model "gitea.dev/models/actions"
+	audit_model "gitea.dev/models/audit"
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
@@ -84,6 +85,12 @@ func AcceptTransferOwnership(ctx context.Context, repo *repo_model.Repository, d
 	releaser()
 
 	notify_service.TransferRepository(ctx, doer, repo, oldOwnerName)
+
+	// Audit log for transfer acceptance
+	newOwnerName := repo.OwnerName
+	if err := audit_model.LogTransfer(ctx, doer.ID, doer.Name, repo.ID, repo.FullName(), oldOwnerName, newOwnerName); err != nil {
+		log.Error("Failed to write audit log for transfer: %v", err)
+	}
 
 	return nil
 }
@@ -482,6 +489,11 @@ func StartRepositoryTransfer(ctx context.Context, doer, newOwner *user_model.Use
 
 	if isDirectTransfer {
 		notify_service.TransferRepository(ctx, doer, repo, oldOwnerName)
+
+		// Audit log for direct transfer
+		if err := audit_model.LogTransfer(ctx, doer.ID, doer.Name, repo.ID, repo.FullName(), oldOwnerName, newOwner.Name); err != nil {
+			log.Error("Failed to write audit log for transfer: %v", err)
+		}
 	} else {
 		// notify users who are able to accept / reject transfer
 		notify_service.RepoPendingTransfer(ctx, doer, newOwner, repo)
