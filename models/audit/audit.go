@@ -202,18 +202,17 @@ func FindAuditLogs(ctx context.Context, opts FindAuditLogOptions) ([]*AuditLog, 
 	return logs, count, nil
 }
 
-// CountAuditLogsByAction returns counts grouped by action
+// ActionCount holds a count of audit logs for a given action
 type ActionCount struct {
-	Action string `json:"action" xorm:"action"`
-	Count  int64  `json:"count"  xorm:"count"`
+	Action string `json:"action"`
+	Count  int64  `json:"count"`
 }
 
 // CountAuditLogsByAction returns the count of audit logs grouped by action
 func CountAuditLogsByAction(ctx context.Context, opts FindAuditLogOptions) ([]*ActionCount, error) {
-	sess := opts.ApplyTo(db.GetEngine(ctx).Select("action, count(*) as count").GroupBy("action"))
-
+	sess := opts.ApplyTo(db.GetEngine(ctx))
 	results := make([]*ActionCount, 0, 20)
-	if err := sess.Find(&results); err != nil {
+	if err := sess.SQL("SELECT action, count(*) as count FROM audit_log GROUP BY action").Find(&results); err != nil {
 		return nil, err
 	}
 	return results, nil
