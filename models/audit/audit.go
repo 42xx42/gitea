@@ -204,8 +204,8 @@ func FindAuditLogs(ctx context.Context, opts FindAuditLogOptions) ([]*AuditLog, 
 
 // CountAuditLogsByAction returns counts grouped by action
 type ActionCount struct {
-	Action AuditAction `json:"action"`
-	Count  int64       `json:"count"`
+	Action string `json:"action" xorm:"action"`
+	Count  int64  `json:"count"  xorm:"count"`
 }
 
 // CountAuditLogsByAction returns the count of audit logs grouped by action
